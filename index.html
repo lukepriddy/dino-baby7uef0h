@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timewave Zero Chart</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom/dist/chartjs-plugin-zoom.min.js"></script><style>
+        body { font-family: 'IBM Plex Mono', monospace; }
+        select:disabled, input:disabled { background-color: #374151; cursor: not-allowed; opacity: 0.6; }
+        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+        input[type=number] { -moz-appearance: textfield; }
+        .select-90s { -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+    </style>
+</head>
+<body class="bg-black text-gray-300">
+    <div class="container mx-auto p-4 md:p-8">
+        <div class="bg-black border-2 border-gray-600 p-6">
+            <div class="text-center mb-6">
+                <h1 class="text-2xl font-medium text-white tracking-widest">TIMEWAVE ZERO</h1>
+            </div>
+
+            <div class="border border-gray-600 p-4 mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                <div class="relative">
+                    <label for="timescaleSelector" class="block text-sm text-gray-400 mb-1">Timescale:</label>
+                    <select id="timescaleSelector" class="select-90s w-full p-2 bg-gray-800 border border-gray-500 text-white focus:ring-green-500 focus:border-green-500 pr-8">
+                        <option value="custom">Custom Date Range</option>
+                        <option value="5">Last 5 Years</option>
+                        <option value="10">Last 10 Years</option>
+                        <option value="50">Last 50 Years</option>
+                        <option value="100">Last 100 Years</option>
+                        <option value="1000">Last 1,000 Years</option>
+                        <option value="2000">Last 2,000 Years</option>
+                        <option value="5000">Last 5,000 Years</option>
+                        <option value="10000">Last 10,000 Years</option>
+                        <option value="20000">Last 20,000 Years</option>
+                        <option value="100000">Last 100,000 Years</option>
+                        <option value="1000000">Last 1 Million Years</option>
+                        <option value="10000000">Last 10 Million Years</option>
+                        <option value="50000000">Last 50 Million Years</option>
+                        <option value="100000000">Last 100 Million Years</option>
+                        <option value="1000000000">Last 1 Billion Years</option>
+                    </select>
+                    <div class="pointer-events-none absolute inset-y-0 right-0 top-6 flex items-center px-2 text-white">
+                        <svg class="fill-current h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20"><path d="M7 10l5 5 5-5z"/></svg>
+                    </div>
+                </div>
+                <div class="lg:col-span-1">
+                    <label class="block text-sm text-gray-400 mb-1">Start Date (Y/M/D):</label>
+                    <div class="flex space-x-1">
+                        <input type="number" id="startYear" value="2010" placeholder="YYYY" class="w-1/2 p-2 bg-gray-800 border border-gray-500 text-white" />
+                        <input type="number" id="startMonth" value="12" placeholder="MM" class="w-1/4 p-2 bg-gray-800 border border-gray-500 text-white" />
+                        <input type="number" id="startDay" value="21" placeholder="DD" class="w-1/4 p-2 bg-gray-800 border border-gray-500 text-white" />
+                    </div>
+                </div>
+                <div class="lg:col-span-1">
+                    <label class="block text-sm text-gray-400 mb-1">End Date (Y/M/D):</label>
+                    <div class="flex space-x-1">
+                        <input type="number" id="endYear" value="2012" placeholder="YYYY" class="w-1/2 p-2 bg-gray-800 border border-gray-500 text-white" />
+                        <input type="number" id="endMonth" value="12" placeholder="MM" class="w-1/4 p-2 bg-gray-800 border border-gray-500 text-white" />
+                        <input type="number" id="endDay" value="31" placeholder="DD" class="w-1/4 p-2 bg-gray-800 border border-gray-500 text-white" />
+                    </div>
+                </div>
+                <div>
+                    <button id="plotButton" class="w-full bg-gray-700 text-white font-bold py-2 px-4 border border-gray-500 hover:bg-gray-600">Generate</button>
+                </div>
+                <div>
+                    <button id="resetZoomButton" class="w-full bg-gray-700 text-white font-bold py-2 px-4 border border-gray-500 hover:bg-gray-600">Reset Zoom</button>
+                </div>
+            </div>
+
+            <div id="dataReadout" class="border border-gray-600 p-2 mb-6 text-center text-lg text-green-400 h-10 flex items-center justify-center">
+                <span>Move cursor over graph to see data</span>
+            </div>
+
+            <div class="bg-black border-2 border-gray-600 p-2">
+                <canvas id="timewaveChart" style="display:block;width:100%;height:420px;"></canvas>
+            </div>
+            <div id="errorMessage" class="text-center text-red-500 mt-4 font-medium"></div>
+        </div>
+    </div>
+
+    <script>
+    (function(){
+        'use strict';
+        
+// Register zoom if available
+        try { if (window['chartjs-plugin-zoom'] && window.Chart && window.Chart.register) { window.Chart.register(window['chartjs-plugin-zoom']); } } catch(e) {}
+
+        // constants
+        const ZERO_DATE = new Date('2012-12-21T00:00:00Z');
+        const MS_PER_DAY = 1000 * 60 * 60 * 24;
+        const MAX_POINTS = 10000;
+        const VAST_THRESHOLD = 500;
+
+        // --- Core Timewave Zero Calculation Logic ---
+        function generateHValues() {
+            const h_full = [3, 6, 2, 4, 4, 4, 3, 2, 4, 2, 4, 6, 2, 2, 4, 2, 2, 6, 3, 4, 3, 2, 2, 2, 3, 4, 2, 6, 2, 6, 3, 2, 3, 4, 4, 4, 2, 4, 6, 4, 3, 2, 4, 2, 3, 4, 3, 2, 3, 4, 4, 4, 1, 6, 2, 2, 3, 4, 3, 2, 1, 6, 3, 6, 3];
+            return h_full.slice(0, 64);
+        }
+        const H_SEQ = generateHValues();
+        const W_SEQ_CACHE = generateWSequence(H_SEQ);
+
+        function generateWSequence(h) {
+            const w = [];
+            const mod = (n, m) => ((n % m) + m) % m;
+            for (let k = 0; k < 384; k++) {
+                const term1 = ((-1) ** Math.trunc((k - 1) / 32)) * (h[mod(k - 1, 64)] - h[mod(k - 2, 64)] + h[mod(-k, 64)] - h[mod(1 - k, 64)]);
+                const k_div3 = Math.trunc(k / 3);
+                const term2 = 3 * ((-1) ** Math.trunc((k - 3) / 96)) * (h[mod(k_div3 - 1, 64)] - h[mod(k_div3 - 2, 64)] + h[mod(-k_div3, 64)] - h[mod(1 - k_div3, 64)]);
+                const k_div6 = Math.trunc(k / 6);
+                const term3 = 6 * ((-1) ** Math.trunc((k - 6) / 192)) * (h[mod(k_div6 - 1, 64)] - h[mod(k_div6 - 2, 64)] + h[mod(-k_div6, 64)] - h[mod(1 - k_div6, 64)]);
+                const diff_abs = Math.abs(term1 + term2 + term3);
+                const const_part = Math.abs(9 - h[mod(-k, 64)] - h[mod(k - 1, 64)] + 3 * (9 - h[mod(-k_div3, 64)] - h[mod(k_div3 - 1, 64)]) + 6 * (9 - h[mod(-k_div6, 64)] - h[mod(k_div6 - 1, 64)]));
+                w.push(diff_abs + const_part);
+            }
+            return w;
+        }
+        function W(i, w_seq) {
+            const mod = (n, m) => ((n % m) + m) % m;
+            return w_seq[mod(i, 384)];
+        }
+        function v(x, w_seq) {
+            if (x < 0) return 0.0;
+            const k = Math.floor(x);
+            const t = x - k;
+            const w_k = W(k, w_seq);
+            const w_k1 = W(k + 1, w_seq);
+            return w_k + t * (w_k1 - w_k);
+        }
+        function timewave(x, w_seq, normalized = true) {
+            const wave_factor = 64;
+            const terms = 5;
+            let terms_min = -5;
+            if (!normalized) { terms_min = 1; }
+            if (x < 0) return 0;
+            let total = 0.0;
+            for (let i = terms_min; i <= terms; i++) {
+                const scale = wave_factor ** i;
+                total += (scale * v(x / scale, w_seq));
+            }
+            return normalized ? total / (wave_factor ** 3) : total;
+        }
+
+        // --- UI and Charting Logic ---
+        const startYearInput = document.getElementById('startYear');
+        const startMonthInput = document.getElementById('startMonth');
+        const startDayInput = document.getElementById('startDay');
+        const endYearInput = document.getElementById('endYear');
+        const endMonthInput = document.getElementById('endMonth');
+        const endDayInput = document.getElementById('endDay');
+        const timescaleSelector = document.getElementById('timescaleSelector');
+        const plotButton = document.getElementById('plotButton');
+        const resetZoomButton = document.getElementById('resetZoomButton');
+        const dataReadout = document.getElementById('dataReadout');
+        const errorMessage = document.getElementById('errorMessage');
+        const ctx = document.getElementById('timewaveChart').getContext('2d');
+        const canvasEl = ctx.canvas;
+        let chart;
+        let lastReadout = '';
+
+        function sizeCanvas(){
+            const parent = canvasEl.parentElement; if (!parent) return;
+            const w = parent.clientWidth || 800; canvasEl.width = w; canvasEl.height = 420;
+        }
+        function debounce(fn, wait){ let t; return function(){ clearTimeout(t); t = setTimeout(fn, wait); }; }
+        window.addEventListener('resize', debounce(() => { sizeCanvas(); if (chart) { chart.resize(); } }, 150), { passive: true });
+
+        const verticalLinePlugin = {
+            id: 'verticalLine',
+            afterDraw: (chart) => {
+                if (chart.tooltip?._active?.length) {
+                    const x = chart.tooltip._active[0].element.x;
+                    const yAxis = chart.scales.y;
+                    const ctx = chart.ctx;
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.moveTo(x, yAxis.top);
+                    ctx.lineTo(x, yAxis.bottom);
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = '#FF00FF';
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        };
+
+        function setDateInputsDisabled(disabled) {
+            startYearInput.disabled = disabled;
+            startMonthInput.disabled = disabled;
+            startDayInput.disabled = disabled;
+            endYearInput.disabled = disabled;
+            endMonthInput.disabled = disabled;
+            endDayInput.disabled = disabled;
+        }
+
+        function handleTimescaleChange() {
+            const selection = timescaleSelector.value;
+            if (selection === 'custom') setDateInputsDisabled(false);
+            else { setDateInputsDisabled(true); plotTimewave(); }
+        }
+
+        function plotTimewave() {
+            errorMessage.textContent = '';
+            sizeCanvas();
+            const w_seq = W_SEQ_CACHE;
+            const selection = timescaleSelector.value;
+            // using ZERO_DATE constant
+            // using MS_PER_DAY constant
+            // using MAX_POINTS constant
+
+            let start, end;
+            let scaleType;
+            let normalized;
+            let startYearVal = parseInt(startYearInput.value, 10);
+
+            if (selection === 'custom') {
+                if (startYearVal < 1) { scaleType = 'linear'; normalized = false; }
+                else { scaleType = 'time'; normalized = true; }
+            } else {
+                const years = Number(selection);
+                // using VAST_THRESHOLD constant
+                if (years <= VAST_THRESHOLD) { scaleType = 'time'; normalized = true; }
+                else { scaleType = 'linear'; normalized = false; }
+            }
+
+            if (scaleType === 'time') {
+                if (selection === 'custom') {
+                    const startMonth = parseInt(startMonthInput.value, 10);
+                    const startDay = parseInt(startDayInput.value, 10);
+                    const endYear = parseInt(endYearInput.value, 10);
+                    const endMonth = parseInt(endMonthInput.value, 10);
+                    const endDay = parseInt(endDayInput.value, 10);
+
+                    start = new Date(0);
+                    start.setUTCFullYear(startYearVal, startMonth - 1, startDay);
+                    start.setUTCHours(0,0,0,0);
+
+                    end = new Date(0);
+                    end.setUTCFullYear(endYear, endMonth - 1, endDay);
+                    end.setUTCHours(0,0,0,0);
+                } else {
+                    const years = Number(selection);
+                    const bufferDays = Math.max(30, Math.floor((years * 365.25) * 0.05));
+                    end = new Date(ZERO_DATE);
+                    end.setUTCDate(end.getUTCDate() + bufferDays);
+                    start = new Date(ZERO_DATE);
+                    start.setUTCFullYear(start.getUTCFullYear() - years);
+                }
+            } else {
+                if (selection === 'custom') {
+                    start = parseInt(startYearInput.value, 10);
+                    end = parseInt(endYearInput.value, 10);
+                } else {
+                    const years = Number(selection);
+                    start = 2012 - years;
+                    const bufferYears = Math.max(2, Math.floor(years * 0.05));
+                    end = 2012 + bufferYears;
+                }
+            }
+
+            if (scaleType === 'time' && (isNaN(start.getTime()) || isNaN(end.getTime()))) {
+                errorMessage.textContent = 'Please enter a valid start and end date.'; return;
+            }
+            if (scaleType === 'time' && end < start) {
+                errorMessage.textContent = 'End date must not be earlier than start date.'; return;
+            }
+
+            const dataPoints = [];
+            if (scaleType === 'time') {
+                const currentTimespanDays = Math.floor((end - start) / MS_PER_DAY);
+                const step = currentTimespanDays > MAX_POINTS ? Math.max(1, Math.floor(currentTimespanDays / MAX_POINTS)) : 1;
+                for (let t = start.getTime(); t <= end.getTime(); t += step * MS_PER_DAY) {
+                    const d = new Date(t);
+                    const days = Math.floor((ZERO_DATE - d) / MS_PER_DAY);
+                    const val = timewave(days, w_seq, normalized);
+                    dataPoints.push({x: d, y: val});
+                }
+            } else {
+                const totalYears = end - start;
+                const yearStep = totalYears > MAX_POINTS ? Math.max(1, Math.floor(totalYears / MAX_POINTS)) : 1;
+                for (let year = start; year <= end; year += yearStep) {
+                    const days = (2012.9726 - year) * 365.2425;
+                    const val = timewave(days, w_seq, normalized);
+                    dataPoints.push({x: year, y: val, days: days});
+                }
+            }
+
+            if (dataPoints.length < 2) { errorMessage.textContent = 'No data points generated for the selected range.'; }
+            updateChart(dataPoints, scaleType, (scaleType === 'time' ? start.getTime() : start), (scaleType === 'time' ? end.getTime() : end));
+        }
+
+        function formatYearLabel(year) {
+            if (year === 0) return '0';
+            const absYear = Math.abs(year);
+            const suffix = year < 0 ? ' BC' : ' AD';
+            let displayValue;
+            if (absYear >= 1e9) displayValue = (absYear / 1e9).toPrecision(3) + ' bil';
+            else if (absYear >= 1e6) displayValue = (absYear / 1e6).toPrecision(3) + ' mil';
+            else displayValue = Math.round(absYear);
+            return displayValue + suffix;
+        }
+
+        function updateChart(data, scaleType, minX, maxX) {
+            let xAxisConfig;
+            if (scaleType === 'time') {
+                xAxisConfig = {
+                   type: 'time', min: minX, max: maxX,
+                   time: { unit: 'day', tooltipFormat: 'MMM d, yyyy', displayFormats: { day: 'MMM d, yyyy' }},
+                   title: { display: true, text: 'Date', font: { weight: 'bold', family: "'IBM Plex Mono', monospace" }, color: '#d1d5db' },
+                   grid: { color: 'rgba(255, 255, 255, 0.2)' },
+                   ticks: { color: '#d1d5db', font: { family: "'IBM Plex Mono', monospace" } }
+                };
+            } else {
+                xAxisConfig = {
+                   type: 'linear', min: minX, max: maxX,
+                   title: { display: true, text: 'Year', font: { weight: 'bold', family: "'IBM Plex Mono', monospace" }, color: '#d1d5db' },
+                   grid: { color: 'rgba(255, 255, 255, 0.2)' },
+                   ticks: { color: '#d1d5db', font: { family: "'IBM Plex Mono', monospace" }, callback: function(value){ return formatYearLabel(value); } }
+                };
+            }
+
+            if (!chart) {
+                chart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets: [{ label: 'Novelty', data: data, borderColor: '#32CD32', borderWidth: 1, pointRadius: 0, tension: 0.1, parsing: false, fill: false }] },
+                    options: {
+                        responsive: false,
+                        animation: false,
+                        interaction: { mode: 'index', intersect: false },
+                        scales: { 
+                            y: { beginAtZero: false, title: { display: true, text: 'Novelty', font: { weight: 'bold', family: "'IBM Plex Mono', monospace" }, color: '#d1d5db' }, grid: { color: 'rgba(255, 255, 255, 0.2)' }, ticks: { color: '#d1d5db', font: { family: "'IBM Plex Mono', monospace" } } },
+                            x: xAxisConfig 
+                        },
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: { 
+                                enabled: false,
+                                external: function(context) {
+                                    const tooltipModel = context.tooltip;
+                                    if (tooltipModel.opacity === 0) {
+                                        if (lastReadout !== 'idle') { dataReadout.innerHTML = '<span>Move cursor over graph to see data</span>'; lastReadout = 'idle'; }
+                                        return;
+                                    }
+                                    const activePoint = tooltipModel.dataPoints[0];
+                                    if (activePoint) {
+                                        const value = activePoint.parsed.y.toPrecision(8);
+                                        let dateString;
+                                        if (scaleType === 'linear') {
+                                            const year = activePoint.parsed.x;
+                                            const days = activePoint.raw.days;
+                                            // using ZERO_DATE constant
+                                            // using MS_PER_DAY constant
+                                            const approxDate = new Date(ZERO_DATE.getTime() - (days * MS_PER_DAY));
+                                            const month = approxDate.toLocaleString('default', { month: 'long', timeZone: 'UTC' });
+                                            dateString = `${month}, ${formatYearLabel(year)}`;
+                                        } else {
+                                            dateString = new Date(activePoint.parsed.x).toLocaleDateString(undefined, { timeZone: 'UTC', year: 'numeric', month: 'short', day: 'numeric' });
+                                        }
+                                        const text = `${dateString} | Value: ${value}`;
+                                        if (text !== lastReadout) { dataReadout.innerHTML = `<span>${text}</span>`; lastReadout = text; }
+                                    }
+                                }
+                            },
+                            zoom: { pan: { enabled: true, mode: 'x' }, zoom: { wheel: { enabled: true, speed: 0.05 }, pinch: { enabled: true, speed: 0.05 }, mode: 'x' } }
+                        }
+                    },
+                    plugins: [verticalLinePlugin]
+                });
+            } else {
+                chart.data.datasets[0].data = data;
+                chart.options.scales.x = xAxisConfig;
+                chart.update('none');
+            }
+        }
+
+        function resetChartZoom() { if (chart && chart.resetZoom) chart.resetZoom(); }
+
+        plotButton.addEventListener('click', plotTimewave, { passive: true });
+        resetZoomButton.addEventListener('click', resetChartZoom, { passive: true });
+        timescaleSelector.addEventListener('change', handleTimescaleChange, { passive: true });
+        window.addEventListener('load', plotTimewave);
+        // also draw immediately in case load already fired
+        plotTimewave();
+
+        try {
+            console.assert(H_SEQ.length === 64, 'H length should be 64');
+            console.assert(W_SEQ_CACHE.length === 384, 'W length should be 384');
+            console.assert(W(10, W_SEQ_CACHE) === W(394, W_SEQ_CACHE), 'W wraps correctly');
+        } catch (_) {}
+    })();
+    </script>
+</body>
+</html>
